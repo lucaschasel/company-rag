@@ -151,13 +151,23 @@ React → Nginx / Vite proxy → Spring Security → REST API
 
 ## 多实例部署
 
-已内置**分布式入库任务租约**（数据库租约，`document.lease_expires_at`）：多实例可安全并行处理入库任务，崩溃实例的过期租约会被自动回收（`app.ingestion.lease-seconds`，默认 300 秒）。
+多实例化所需的三项能力已内置：
 
-水平扩展还需把「单机状态」抽到共享层：
+- **分布式任务租约**（已实现）：数据库租约 `document.lease_expires_at`，多实例可安全并行处理入库任务，崩溃实例的过期租约会被自动回收（`app.ingestion.lease-seconds`，默认 300 秒）。
+- **共享 Session**（已实现）：激活 `redis` profile 并配置 Redis，登录态存入 Redis，各实例共享。
+- **对象存储**（已实现）：设置 `STORAGE_TYPE=s3` 与 `S3_*`，上传文件存入 S3 兼容对象存储（AWS S3 / MinIO）；默认 `local` 使用本地磁盘。
+- **数据库**：生产使用 PostgreSQL + pgvector（见 `compose.yaml`），多实例共享同一个库。
 
-- **共享 Session**：引入 `spring-session-data-redis`（或 `spring-session-jdbc`），把登录态放进 Redis / 共享数据库，避免负载均衡导致用户掉线。
-- **对象存储**：将 `app.storage` 指向共享存储。简单做法是挂载共享卷（NFS / 云盘），或用 S3 / MinIO 替换本地文件存储。
-- **数据库**：生产已使用 PostgreSQL + pgvector（见 `compose.yaml`），多实例共享同一个库即可。
+```powershell
+# 示例：PostgreSQL + Redis + S3(MinIO) 多实例
+$env:SPRING_PROFILES_ACTIVE = "postgres,redis"
+$env:REDIS_HOST = "redis"
+$env:STORAGE_TYPE = "s3"
+$env:S3_BUCKET = "knowledge"
+$env:S3_ENDPOINT = "http://minio:9000"
+$env:S3_ACCESS_KEY = "minioadmin"
+$env:S3_SECRET_KEY = "minioadmin"
+```
 
 ## 参考
 

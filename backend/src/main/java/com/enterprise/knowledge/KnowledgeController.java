@@ -16,8 +16,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/kbs")
 public class KnowledgeController {
-    private final JdbcTemplate db;private final AccessService access;private final IngestionService ingestion;private final TransactionTemplate tx;
-    public KnowledgeController(JdbcTemplate db,AccessService a,IngestionService i,TransactionTemplate tx){this.db=db;access=a;ingestion=i;this.tx=tx;}
+    private final JdbcTemplate db;private final AccessService access;private final IngestionService ingestion;private final TransactionTemplate tx;private final FileStore store;
+    public KnowledgeController(JdbcTemplate db,AccessService a,IngestionService i,TransactionTemplate tx,FileStore store){this.db=db;access=a;ingestion=i;this.tx=tx;this.store=store;}
     record NewKb(@NotBlank @Size(max=120) String name,@NotNull @Size(max=2000) String description) {}
     record Member(@NotBlank @Size(max=80) String username) {}
     @GetMapping List<Map<String,Object>> list(Authentication a) {
@@ -48,22 +48,22 @@ public class KnowledgeController {
         access.kb(id,a,true);String original=Objects.requireNonNullElse(file.getOriginalFilename(),"document.txt").replace('\\','/');
         String name=original.substring(original.lastIndexOf('/')+1);
         if(file.isEmpty() || name.length()>255 || !name.toLowerCase(Locale.ROOT).matches(".+\\.(txt|md|pdf|docx)"))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"支持非空的 TXT、MD、PDF、DOCX 文件");
-        String doc=UUID.randomUUID().toString(),key=UUID.randomUUID().toString();Path path=ingestion.storage.resolve(key);
+        String doc=UUID.randomUUID().toString(),key=UUID.randomUUID().toString();
         try {
-            file.transferTo(path);
+            store.save(key,file.getInputStream(),file.getSize());
             db.update("INSERT INTO document(id,kb_id,name,storage_key,size_bytes,status) VALUES(?,?,?,?,?,'PENDING')",doc,id,name,key,file.getSize());
-        }catch(Exception e){Files.deleteIfExists(path);throw e;}
+        }catch(Exception e){try{store.delete(key);}catch(Exception ignored){}throw e;}
         access.audit(a,"DOCUMENT_UPLOAD",doc);return Map.of("id",doc);
     }
     private Map<String,Object> doc(String id,String did,Authentication a,boolean write) {
         access.kb(id,a,write);var rows=db.queryForList("SELECT * FROM document WHERE id=? AND kb_id=?",did,id);
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文档不存在");return rows.get(0);
     }
-    @GetMapping("/{id}/documents/{did}/download") ResponseEntity<Resource> download(@PathVariable String id,@PathVariable String did,Authentication a) {
+    @GetMapping("/{id}/documents/{did}/download") ResponseEntity<Resource> download(@PathVariable String id,@PathVariable String did,Authentication a) throws Exception {
         var d=doc(id,did,a,false);access.audit(a,"DOCUMENT_DOWNLOAD",did);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM)
             .header(HttpHeaders.CONTENT_DISPOSITION,ContentDisposition.attachment().filename((String)d.get("name"),java.nio.charset.StandardCharsets.UTF_8).build().toString())
-            .body(new FileSystemResource(ingestion.storage.resolve((String)d.get("storage_key"))));
+            .body(new InputStreamResource(store.open((String)d.get("storage_key"))));
     }
     @GetMapping("/{id}/documents/{did}/chunks") List<Map<String,Object>> chunks(@PathVariable String id,@PathVariable String did,Authentication a) {
         doc(id,did,a,false);return db.queryForList("SELECT id,ordinal,content FROM chunk WHERE document_id=? ORDER BY ordinal",did);
@@ -76,6 +76,6 @@ public class KnowledgeController {
     @DeleteMapping("/{id}/documents/{did}") void delete(@PathVariable String id,@PathVariable String did,Authentication a) throws Exception {
         var d=doc(id,did,a,true);
         tx.executeWithoutResult(s -> {db.update("DELETE FROM document WHERE id=?",did);access.audit(a,"DOCUMENT_DELETE",did);});
-        Files.deleteIfExists(ingestion.storage.resolve((String)d.get("storage_key")));
+        store.delete((String)d.get("storage_key"));
     }
 }

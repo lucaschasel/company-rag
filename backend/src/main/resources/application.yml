@@ -29,6 +29,23 @@ app:
   admin-user: ${ADMIN_USER:admin}
   admin-password: ${ADMIN_PASSWORD:}
   storage: ${STORAGE_PATH:./data/uploads}
+  storage-type: ${STORAGE_TYPE:local}
+  chunk:
+    max-tokens: ${CHUNK_MAX_TOKENS:512}
+    overlap-tokens: ${CHUNK_OVERLAP_TOKENS:64}
+  ingestion:
+    lease-seconds: ${INGESTION_LEASE_SECONDS:300}
+  ocr:
+    command: ${OCR_COMMAND:}
+  clamd:
+    host: ${CLAMD_HOST:}
+    port: ${CLAMD_PORT:3310}
+  s3:
+    bucket: ${S3_BUCKET:}
+    endpoint: ${S3_ENDPOINT:}
+    region: ${S3_REGION:us-east-1}
+    access-key: ${S3_ACCESS_KEY:}
+    secret-key: ${S3_SECRET_KEY:}
   model:
     enabled: ${MODEL_ENABLED:false}
     base-url: ${MODEL_BASE_URL:http://localhost:11434/v1}
@@ -48,3 +65,15 @@ server:
     session:
       cookie:
         secure: ${COOKIE_SECURE:true}
+---
+spring:
+  config:
+    activate:
+      on-profile: redis
+  session:
+    store-type: redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
