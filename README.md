@@ -147,18 +147,6 @@ React → Nginx / Vite proxy → Spring Security → REST API
 - **启动报 H2 文件被占用（90020）**：通常是已有后端占用了同一 H2 文件。后台启动与 Maven 手动启动二选一，勿重复启动。
 - **npm ci 报 EPERM / unlink esbuild.exe**：先停止前端（`./scripts/stop-dev.ps1 -FrontendOnly`）再安装，避免运行中的 Vite/esbuild 锁住文件。
 
-## 当前边界
-
-这是企业系统的首版基础实现，尚未完成生产验收：
-
-- 后台入库队列与 Session 按单实例设计；多实例部署前需引入分布式任务租约、共享 Session 与对象存储。
-- pgvector 使用精确距离排序，未建 HNSW / IVFFlat 索引；规模增长后需按向量维数分表 / 分区建索引并压测。
-- H2 / 纯关键词模式为内存扫描，检索范围超 20,000 分块会拒绝检索；PostgreSQL 向量模式先取 80 个候选再做关键词加权，非独立 BM25 双路召回。
-- 按 900 字符切块、150 字符重叠；PDF 扫描件无 OCR，复杂表格可能损失结构，来源精确到分块而非页码。
-- 对话历史已持久化，但暂不把历史问题传给模型；每次提问应包含完整主题。
-- 尚无流式输出、SSO / LDAP、用户禁用 / 密码重置、知识库重命名 / 删除、文件病毒扫描、备份自动化与灾备。
-- 问答使用资料隔离提示词但不保证消除提示注入；引用卡片始终来自后端真实检索结果，重要决策请核对原文。
-
 ## 参考
 
 - [Spring Boot 系统要求](https://docs.spring.io/spring-boot/3.5/system-requirements.html)
