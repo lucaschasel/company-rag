@@ -110,6 +110,8 @@ docker compose up --build -d
 | DELETE `/api/kbs/{id}/documents/{did}` | 删除文件及索引 |
 | POST `/api/search` | 检索，`{question,topK,kbId?}`，topK 1–10 |
 | POST `/api/chat` | 问答，返回 `{answer,mode,citations,conversationId}`；带 `conversationId` 追加会话、带 `title` 新建会话 |
+| POST `/api/chat/stream` | 流式问答（SSE），事件 `meta` / `delta` / `done` / `error` |
+| PUT `/api/conversations/{id}` | 重命名会话 `{title}` |
 | GET `/api/conversations` | 当前用户的会话列表 |
 | GET `/api/conversations/{id}/messages` | 某会话的消息 |
 | DELETE `/api/conversations/{id}` | 删除会话 |
@@ -146,6 +148,16 @@ React → Nginx / Vite proxy → Spring Security → REST API
 
 - **启动报 H2 文件被占用（90020）**：通常是已有后端占用了同一 H2 文件。后台启动与 Maven 手动启动二选一，勿重复启动。
 - **npm ci 报 EPERM / unlink esbuild.exe**：先停止前端（`./scripts/stop-dev.ps1 -FrontendOnly`）再安装，避免运行中的 Vite/esbuild 锁住文件。
+
+## 多实例部署
+
+已内置**分布式入库任务租约**（数据库租约，`document.lease_expires_at`）：多实例可安全并行处理入库任务，崩溃实例的过期租约会被自动回收（`app.ingestion.lease-seconds`，默认 300 秒）。
+
+水平扩展还需把「单机状态」抽到共享层：
+
+- **共享 Session**：引入 `spring-session-data-redis`（或 `spring-session-jdbc`），把登录态放进 Redis / 共享数据库，避免负载均衡导致用户掉线。
+- **对象存储**：将 `app.storage` 指向共享存储。简单做法是挂载共享卷（NFS / 云盘），或用 S3 / MinIO 替换本地文件存储。
+- **数据库**：生产已使用 PostgreSQL + pgvector（见 `compose.yaml`），多实例共享同一个库即可。
 
 ## 参考
 

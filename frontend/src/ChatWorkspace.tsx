@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, ArrowUpRight, BookOpen, MessageSquare, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { api } from './api';
+import { ArrowUp, ArrowUpRight, BookOpen, MessageSquare, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { api, apiStream } from './api';
 
-type Citation = { index: number; kbId: string; kbName: string; documentId: string; documentName: string; ordinal: number; content: string; score: number };
-type ChatResponse = { answer: string; mode: string; citations: Citation[]; conversationId: string };
+type Citation = { index: number; kbId: string; kbName: string; documentId: string; documentName: string; ordinal: number; content: string; score: number; page: number | null };
 type TurnAnswer = { answer: string; mode: string; citations: Citation[] };
 type Turn = { key: string; question: string; answer?: TurnAnswer; error?: string };
 type Conv = { id: string; title: string; updated_at: string; message_count: number };
@@ -32,6 +31,8 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
   const [conversations, setConversations] = useState<Conv[]>([]);
   const [convId, setConvId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
 
   const scroll = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +96,19 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
     }
   }
 
+  async function saveRename(id: string) {
+    const title = renameText.trim();
+    if (title) {
+      try {
+        await api(`/conversations/${id}`, 'PUT', { title });
+        await reloadConversations();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    }
+    setRenamingId(null);
+  }
+
   async function submit() {
     const text = question.trim();
     if (!text || inFlight.current) return;
@@ -106,16 +120,53 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
     const key = 't' + (++seq.current);
     setTurns(old => [...old, { key, question: text }]);
     try {
-      const res = await api<ChatResponse>('/chat', 'POST', {
+      const res = await apiStream('/chat/stream', {
         question: text,
         topK: 5,
         ...(convId ? { conversationId: convId } : { title: text.slice(0, 30) }),
       });
+      if (!res.body) throw new Error('浏览器不支持流式响应');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let answer = '';
+      let citations: Citation[] = [];
+      let mode = 'KEYWORD';
+      let newConvId: string | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (request.current !== rid) { reader.cancel(); break; }
+        buffer += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const raw = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          let name = '';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event:')) name = line.slice(6).trim();
+            else if (line.startsWith('data:')) data += line.slice(5).trim();
+          }
+          if (!data) continue;
+          if (name === 'meta') {
+            const m = JSON.parse(data);
+            mode = m.mode;
+            citations = m.citations || [];
+            newConvId = m.conversationId;
+            if (request.current === rid) setTurns(old => old.map(t => (t.key === key ? { ...t, answer: { answer: '', mode: m.mode, citations: m.citations || [] } } : t)));
+          } else if (name === 'delta') {
+            const d = JSON.parse(data);
+            answer += d.text || '';
+            if (request.current === rid) setTurns(old => old.map(t => (t.key === key ? { ...t, answer: { answer, mode: t.answer?.mode || mode, citations: t.answer?.citations || citations } } : t)));
+          } else if (name === 'error') {
+            const d = JSON.parse(data);
+            if (request.current === rid) setTurns(old => old.map(t => (t.key === key ? { ...t, error: d.message } : t)));
+          }
+        }
+      }
       if (request.current === rid) {
-        setTurns(old =>
-          old.map(t => (t.key === key ? { ...t, answer: { answer: res.answer, mode: res.mode, citations: res.citations } } : t))
-        );
-        if (res.conversationId && res.conversationId !== convId) setConvId(res.conversationId);
+        if (newConvId && newConvId !== convId) setConvId(newConvId);
         reloadConversations();
       }
     } catch (e) {
@@ -139,18 +190,43 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
         <div className="chat-history-list">
           {conversations.map(c => (
             <div key={c.id} className={'chat-history-item' + (c.id === convId ? ' active' : '')}>
-              <button className="chat-history-open" title={c.title} onClick={() => selectConversation(c.id)}>
-                <MessageSquare size={15} />
-                <span>{c.title}</span>
-              </button>
-              <button
-                className="chat-history-del"
-                aria-label="删除会话"
-                title="删除会话"
-                onClick={() => removeConversation(c.id)}
-              >
-                <Trash2 size={14} />
-              </button>
+              {renamingId === c.id ? (
+                <input
+                  className="chat-history-rename"
+                  autoFocus
+                  maxLength={200}
+                  value={renameText}
+                  onChange={e => setRenameText(e.target.value)}
+                  onBlur={() => saveRename(c.id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setRenamingId(null);
+                  }}
+                />
+              ) : (
+                <>
+                  <button className="chat-history-open" title={c.title} onClick={() => selectConversation(c.id)}>
+                    <MessageSquare size={15} />
+                    <span>{c.title}</span>
+                  </button>
+                  <button
+                    className="chat-history-edit"
+                    aria-label="重命名"
+                    title="重命名"
+                    onClick={() => { setRenamingId(c.id); setRenameText(c.title); }}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    className="chat-history-del"
+                    aria-label="删除会话"
+                    title="删除会话"
+                    onClick={() => removeConversation(c.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
             </div>
           ))}
           {!conversations.length && <p className="chat-history-empty">暂无历史会话</p>}
@@ -202,7 +278,7 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
 
                   {t.answer && (
                     <>
-                      <div className="answer-text">{t.answer.answer}</div>
+                      <div className="answer-text">{t.answer.answer || (pending ? '…' : '')}</div>
                       {t.answer.citations.length > 0 && (
                         <div className="citation-heading">
                           <BookOpen size={16} />
@@ -215,7 +291,7 @@ export function ChatWorkspace({ active, modelEnabled }: { active: boolean; model
                             <span className="citation-index">{c.index}</span>
                             <span className="source-title">
                               {c.documentName}
-                              <small>{c.kbName} · 分块 {c.ordinal}</small>
+                              <small>{c.kbName} · 分块 {c.ordinal}{c.page != null ? ' · 第 ' + c.page + ' 页' : ''}</small>
                             </span>
                             <span className="source-expand">展开原文</span>
                           </summary>

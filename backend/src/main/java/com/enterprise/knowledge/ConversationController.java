@@ -1,5 +1,7 @@
 package com.enterprise.knowledge;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -14,6 +16,8 @@ public class ConversationController {
     private final AccessService access;
 
     public ConversationController(JdbcTemplate db, AccessService access) { this.db = db; this.access = access; }
+
+    record Rename(@NotBlank @Size(max = 200) String title) {}
 
     @GetMapping
     List<Map<String, Object>> list(Authentication a) {
@@ -31,6 +35,14 @@ public class ConversationController {
             "SELECT id, role, content, mode, citations, error, created_at " +
             "FROM conversation_message WHERE conversation_id = ? ORDER BY seq",
             id);
+    }
+
+    @PutMapping("/{id}")
+    Map<String, String> rename(@PathVariable String id, @Valid @RequestBody Rename body, Authentication a) {
+        checkOwner(id, a);
+        String title = body.title().strip();
+        db.update("UPDATE conversation SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", title, id);
+        return Map.of("id", id, "title", title);
     }
 
     @DeleteMapping("/{id}")

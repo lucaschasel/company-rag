@@ -13,7 +13,7 @@ import { ChatWorkspace } from './ChatWorkspace';
 type User = { id: string; username: string; role: string };
 type KB = { id: string; name: string; description: string; owner_id: string; document_count: number; created_at: string };
 type Doc = { id: string; name: string; size_bytes: number; status: string; chunk_count: number; error_message?: string };
-type Citation = { index: number; kbId: string; kbName: string; documentId: string; documentName: string; ordinal: number; content: string; score: number };
+type Citation = { index: number; kbId: string; kbName: string; documentId: string; documentName: string; ordinal: number; content: string; score: number; page: number | null };
 type Answer = { answer: string; mode: string; citations: Citation[] };
 type System = { modelEnabled: boolean; embeddingEnabled: boolean; embeddingModel: string; storage: string };
 type Audit = { id: string; username: string; action: string; resource_id: string; created_at: string };
@@ -570,7 +570,7 @@ function App() {
                         <summary>
                           <span className="citation-index">{c.index}</span>
                           {c.documentName}
-                          <small>{c.kbName} · 分块 {c.ordinal} · 匹配 {c.score.toFixed(3)}</small>
+                          <small>{c.kbName} · 分块 {c.ordinal}{c.page != null ? ' · 第 ' + c.page + ' 页' : ''} · 匹配 {c.score.toFixed(3)}</small>
                         </summary>
                         <p>{c.content}</p>
                         <a href={`/api/kbs/${c.kbId}/documents/${c.documentId}/download`}>
