@@ -1,0 +1,40 @@
+{
+  "knowledgeBases": 4,
+  "documents": 6,
+  "chunks": 155,
+  "status": "READY",
+  "checks": [
+    {
+      "question": "Pod 是什么？",
+      "sources": [
+        "Kubernetes概述.md",
+        "Pod工作负载.md",
+        "Pod工作负载.md"
+      ]
+    },
+    {
+      "question": "Deployment 如何回滚？",
+      "sources": [
+        "Deployment部署.md",
+        "Deployment部署.md",
+        "Deployment部署.md"
+      ]
+    },
+    {
+      "question": "ConfigMap 和 Secret 有什么区别？",
+      "sources": [
+        "ConfigMap配置.md",
+        "Secret敏感配置.md",
+        "Secret敏感配置.md"
+      ]
+    },
+    {
+      "question": "Service 如何发现 Pod？",
+      "sources": [
+        "Service服务发现.md",
+        "Service服务发现.md",
+        "Service服务发现.md"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "retrievedAt": "2026-10-14T11:10:57.776854+08:00",
+  "license": "CC BY 4.0",
+  "documents": [
+    {
+      "title": "Kubernetes概述",
+      "file": "Kubernetes概述.md",
+      "category": "基础概念",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/overview/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/overview/_index.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "77c3f05630ff4242a3928269fe6124d7e7728f041748b3bfd71d2ed30a69130a"
+    },
+    {
+      "title": "Pod工作负载",
+      "file": "Pod工作负载.md",
+      "category": "基础概念",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/workloads/pods/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/workloads/pods/_index.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "b027543725d06cd993ce4fd9dc143db8d49c38b99c1e6c65cb51d35fe3e955e5"
+    },
+    {
+      "title": "Deployment部署",
+      "file": "Deployment部署.md",
+      "category": "工作负载管理",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/workloads/controllers/deployment.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "4e185e9ddd50c389d76865375ca3ac42fec2ddf260d51ef3ae19ef66c3f8d155"
+    },
+    {
+      "title": "ConfigMap配置",
+      "file": "ConfigMap配置.md",
+      "category": "配置与安全",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/configuration/configmap/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/configuration/configmap.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "f0fc1ee79a8517af31e372e0a3dc025a85ea51f95d3a75edb2c0fb86bbc1de9d"
+    },
+    {
+      "title": "Secret敏感配置",
+      "file": "Secret敏感配置.md",
+      "category": "配置与安全",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/configuration/secret/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/configuration/secret.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "79e5ea057d12ef38d2ffb55d59acf8da2cdd4c3bc2f3202ef613b8185f1c5ab4"
+    },
+    {
+      "title": "Service服务发现",
+      "file": "Service服务发现.md",
+      "category": "网络与服务",
+      "url": "https://kubernetes.io/zh-cn/docs/concepts/services-networking/service/",
+      "source": "https://raw.githubusercontent.com/kubernetes/website/51675a591dc393f2fa44b5a72463068236a9932e/content/zh-cn/docs/concepts/services-networking/service.md",
+      "revision": "51675a591dc393f2fa44b5a72463068236a9932e",
+      "sha256": "5b934b913ea92567c95c0976e486b0e6af27485f7938ada8651eb83abafab521"
+    }
+  ]
+}

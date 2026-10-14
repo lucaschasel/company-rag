@@ -1,0 +1,5 @@
+CREATE TABLE model_settings (
+ id INT PRIMARY KEY,
+ encrypted_config TEXT NOT NULL,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

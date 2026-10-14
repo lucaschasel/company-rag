@@ -1,0 +1,8 @@
+.tools/
+**/target/
+**/node_modules/
+**/dist/
+data/
+.env
+*.log
+*.tsbuildinfo
