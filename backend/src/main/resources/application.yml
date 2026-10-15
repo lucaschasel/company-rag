@@ -36,11 +36,19 @@ app:
   ingestion:
     lease-seconds: ${INGESTION_LEASE_SECONDS:300}
   ocr:
+    enabled: ${OCR_ENABLED:false}
+    all-pages: ${OCR_ALL_PAGES:false}
+    min-text-chars: ${OCR_MIN_TEXT_CHARS:20}
+    timeout-seconds: ${OCR_TIMEOUT_SECONDS:60}
+    executable: ${OCR_EXECUTABLE:tesseract}
+    languages: ${OCR_LANGUAGES:chi_sim+eng}
     command: ${OCR_COMMAND:}
   clamd:
     host: ${CLAMD_HOST:}
     port: ${CLAMD_PORT:3310}
+    timeout-ms: ${CLAMD_TIMEOUT_MS:15000}
   s3:
+    path-style: ${S3_PATH_STYLE:true}
     bucket: ${S3_BUCKET:}
     endpoint: ${S3_ENDPOINT:}
     region: ${S3_REGION:us-east-1}

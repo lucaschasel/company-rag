@@ -18,14 +18,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class IngestionService {
     private final JdbcTemplate db; private final ModelSettings settings; private final ObjectMapper json;
     private final TransactionTemplate tx; private final boolean postgres; private final FileStore store;
-    private final int maxTokens; private final int overlapTokens; private final String ocrCommand; private final DocumentSecurity security; private final int leaseSeconds;
+    private final OcrService ocr; private final int maxTokens; private final int overlapTokens; private final DocumentSecurity security; private final int leaseSeconds;
     public IngestionService(JdbcTemplate db,ModelSettings settings,ObjectMapper json,TransactionTemplate tx,Environment env,FileStore store,
             @Value("${app.chunk.max-tokens:512}") int maxTokens,
             @Value("${app.chunk.overlap-tokens:64}") int overlapTokens,
-            @Value("${app.ocr.command:}") String ocrCommand, DocumentSecurity security,
+            OcrService ocr, DocumentSecurity security,
             @Value("${app.ingestion.lease-seconds:300}") int leaseSeconds) {
         this.db=db;this.settings=settings;this.json=json;this.tx=tx;this.store=store;
-        this.postgres=Arrays.asList(env.getActiveProfiles()).contains("postgres");this.maxTokens=maxTokens;this.overlapTokens=overlapTokens;this.ocrCommand=ocrCommand;this.security=security;this.leaseSeconds=leaseSeconds;
+        this.postgres=Arrays.asList(env.getActiveProfiles()).contains("postgres");this.maxTokens=maxTokens;this.overlapTokens=overlapTokens;this.ocr=ocr;this.security=security;this.leaseSeconds=leaseSeconds;
     }
     private record Page(Integer number,String text) {}
     private record Chunk(String content,Integer page) {}
@@ -78,18 +78,10 @@ public class IngestionService {
         String lower=name.toLowerCase(Locale.ROOT);
         if(lower.endsWith(".pdf"))try(var pdf=Loader.loadPDF(path.toFile())) {
             int count=pdf.getNumberOfPages();List<Page> pages=new ArrayList<>();
-            for(int p=1;p<=count;p++){PDFTextStripper s=new PDFTextStripper();s.setStartPage(p);s.setEndPage(p);String t=s.getText(pdf);if(t.isBlank()&&!ocrCommand.isBlank())t=ocrPage(path,p);pages.add(new Page(p,t));}
+            for(int p=1;p<=count;p++){PDFTextStripper s=new PDFTextStripper();s.setStartPage(p);s.setEndPage(p);String t=s.getText(pdf);if(ocr.needed(t)){String recognized=ocr.recognize(path,pdf,p);if(!recognized.isBlank())t=recognized;}pages.add(new Page(p,t));}
             return pages;
         }
         if(lower.endsWith(".docx"))try(var in=Files.newInputStream(path);var doc=new XWPFDocument(in);var extractor=new XWPFWordExtractor(doc)){return List.of(new Page(null,extractor.getText()));}
         return List.of(new Page(null,Files.readString(path)));
-    }
-    /** 调用外部 OCR 命令识别扫描 PDF 单页；命令模板支持 {file} 与 {page} 占位符。 */
-    private String ocrPage(Path pdf,int page) throws Exception {
-        String cmd=ocrCommand.replace("{file}",pdf.toAbsolutePath().toString()).replace("{page}",String.valueOf(page));
-        var p=new ProcessBuilder(cmd.split("\\s+")).redirectErrorStream(true).start();
-        String out=new String(p.getInputStream().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
-        if(p.waitFor()!=0)throw new IllegalStateException("OCR 命令执行失败");
-        return out;
     }
 }

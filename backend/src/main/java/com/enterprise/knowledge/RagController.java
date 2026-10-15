@@ -18,15 +18,17 @@ import org.springframework.http.HttpStatus;
 @RequestMapping("/api")
 public class RagController {
     private final JdbcTemplate db;private final AccessService access;private final ModelSettings settings;private final ObjectMapper json;private final boolean postgres;
-    private final Executor executor=Executors.newFixedThreadPool(8);
-    public RagController(JdbcTemplate db,AccessService a,ModelSettings m,ObjectMapper j,Environment env){this.db=db;access=a;settings=m;json=j;postgres=Arrays.asList(env.getActiveProfiles()).contains("postgres");}
+    private final ExecutorService executor=Executors.newFixedThreadPool(8);
+    private final ConversationAccess conversations;
+    @jakarta.annotation.PreDestroy void stop(){executor.shutdownNow();}
+    public RagController(JdbcTemplate db,AccessService a,ModelSettings m,ObjectMapper j,Environment env,ConversationAccess conversations){this.conversations=conversations;this.db=db;access=a;settings=m;json=j;postgres=Arrays.asList(env.getActiveProfiles()).contains("postgres");}
     record Query(@Size(max=36) String kbId,@NotBlank @Size(max=2000) String question,@Min(1) @Max(10) int topK,@Size(max=36) String conversationId,@Size(max=200) String title) {}
     record Citation(int index,String kbId,String kbName,String documentId,String documentName,int ordinal,String content,double score,Integer page) {}
     record Answer(String answer,String mode,List<Citation> citations,String conversationId) {}
     @GetMapping("/system") Map<String,Object> system(){var c=settings.current();return Map.of("modelEnabled",c.enabled(),"embeddingEnabled",c.embeddingEnabled(),"embeddingModel",c.embedding().model(),"storage",postgres?"PostgreSQL + pgvector":"H2 本地开发");}
     @PostMapping("/search") List<Citation> search(@Valid @RequestBody Query q,Authentication a) throws Exception {checkScope(q,a);access.audit(a,"SEARCH",scopeName(q));return retrieve(q,settings.client(),a);}
     @PostMapping("/chat") Answer chat(@Valid @RequestBody Query q,Authentication a) throws Exception {
-        checkScope(q,a);access.audit(a,"CHAT",scopeName(q));var model=settings.client();var citations=retrieve(q,model,a);var history=loadHistory(q.conversationId(),a);
+        checkScope(q,a);checkConversation(q,a);access.audit(a,"CHAT",scopeName(q));var model=settings.client();var citations=retrieve(q,model,a);var history=loadHistory(q.conversationId(),a);
         String answer;String mode;
         if(citations.isEmpty()){answer="没有找到足够相关的知识。请上传资料，或换一种提问方式。";mode=model.enabled?"RAG":"KEYWORD";}
         else if(!model.enabled){answer="当前未启用 AI 回答。以下是检索到的原文片段，管理员可在模型与部署页面配置并启用聊天模型。";mode=model.embeddingEnabled?"VECTOR":"KEYWORD";}
@@ -40,6 +42,7 @@ public class RagController {
     }
     @PostMapping("/chat/stream")
     SseEmitter chatStream(@Valid @RequestBody Query q,Authentication a) {
+        checkScope(q,a);checkConversation(q,a);
         SseEmitter emitter=new SseEmitter(120000L);
         executor.execute(() -> {
             try {
@@ -62,7 +65,7 @@ public class RagController {
                 emitter.complete();
             } catch(Exception e) {
                 try {
-                    String msg=e instanceof ResponseStatusException?((ResponseStatusException)e).getReason():((e.getMessage()!=null&&!e.getMessage().isBlank())?e.getMessage():"处理失败，请稍后重试");
+                    String msg=e instanceof ResponseStatusException?((ResponseStatusException)e).getReason():"处理失败，请检查模型服务或稍后重试";
                     emitter.send(SseEmitter.event().name("error").data(json.writeValueAsString(Map.of("message",msg))));
                 } catch(Exception ignored) {}
                 emitter.complete();
@@ -78,8 +81,7 @@ public class RagController {
     }
     private List<Map<String,String>> loadHistory(String convId,Authentication a) {
         if(convId==null||convId.isBlank())return List.of();
-        var rows=db.queryForList("SELECT user_id FROM conversation WHERE id = ?",convId);
-        if(rows.isEmpty()||!rows.get(0).get("user_id").equals(access.userId(a)))return List.of();
+        conversations.requireReadable(convId,a);
         var msgs=db.queryForList("SELECT role,content FROM conversation_message WHERE conversation_id = ? AND role IN ('user','assistant') ORDER BY seq DESC LIMIT 12",convId);
         List<Map<String,String>> history=new ArrayList<>();
         for(int i=msgs.size()-1;i>=0;i--) {
@@ -116,6 +118,7 @@ public class RagController {
         String t=question.replaceAll("\\s+"," ").strip();
         return t.length()<=30?t:t.substring(0,30);
     }
+    private void checkConversation(Query q,Authentication a){if(q.conversationId()!=null&&!q.conversationId().isBlank())conversations.requireReadable(q.conversationId(),a);}
     private boolean scoped(Query q){return q.kbId()!=null && !q.kbId().isBlank();}
     private String scopeName(Query q){return scoped(q)?q.kbId():"ALL_ACCESSIBLE";}
     private void checkScope(Query q,Authentication a){if(scoped(q))access.kb(q.kbId(),a,false);}
@@ -133,8 +136,10 @@ public class RagController {
         try{vector=model.embeddingEnabled?model.embed(q.question()):null;}catch(Exception e){throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"向量模型不可用，请检查模型服务");}
         List<Map<String,Object>> candidates;
         if(postgres && vector!=null) {
-            args.add(model.signature());args.add(json.writeValueAsString(vector));
-            candidates=db.queryForList(select+" AND c.embedding_model=? AND c.vector_embedding IS NOT NULL ORDER BY c.vector_embedding <=> CAST(? AS vector) LIMIT 80",args.toArray());
+            args.add(json.writeValueAsString(vector));
+            String predicate=VectorIndexes.predicate(model.signature(),vector.length,"c.");
+            String expression=VectorIndexes.expression(model.signature(),vector.length,"c.");
+            candidates=db.queryForList(select+" AND "+predicate+" ORDER BY "+expression+" <=> CAST(? AS vector("+vector.length+")) LIMIT 80",args.toArray());
         } else {
             Long count=db.queryForObject("SELECT COUNT(*)"+from,Long.class,args.toArray());
             if(count>20000)throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"本地/关键词检索最多支持 20000 分块，请启用 PostgreSQL 向量检索");

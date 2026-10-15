@@ -1,0 +1,68 @@
+# Optional local integration stack. See docs/REPAIR-NOTES.md before switching existing storage.
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-knowledge}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set a dedicated S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc admin user add local "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::%s"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::%s/*"]}]}' "$$S3_BUCKET" "$$S3_BUCKET" > /tmp/policy.json
+        mc admin policy create local rag-documents /tmp/policy.json
+        mc admin policy attach local rag-documents --user "$$S3_ACCESS_KEY"
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+    restart: unless-stopped
+  backend:
+    environment:
+      STORAGE_TYPE: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-knowledge}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+      S3_PATH_STYLE: "true"
+      OCR_ENABLED: "true"
+      OCR_LANGUAGES: chi_sim+eng
+      CLAMD_HOST: clamav
+      CLAMD_PORT: 3310
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+volumes:
+  minio_data:
+  clamav_data:

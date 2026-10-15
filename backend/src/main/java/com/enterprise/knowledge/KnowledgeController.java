@@ -60,13 +60,17 @@ public class KnowledgeController {
         if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文档不存在");return rows.get(0);
     }
     @GetMapping("/{id}/documents/{did}/download") ResponseEntity<Resource> download(@PathVariable String id,@PathVariable String did,Authentication a) throws Exception {
-        var d=doc(id,did,a,false);access.audit(a,"DOCUMENT_DOWNLOAD",did);
+        var d=doc(id,did,a,false);
+        if(!"READY".equals(d.get("status")))throw new ResponseStatusException(HttpStatus.CONFLICT,"文档尚未通过入库检查，暂不可下载");
+        access.audit(a,"DOCUMENT_DOWNLOAD",did);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM)
             .header(HttpHeaders.CONTENT_DISPOSITION,ContentDisposition.attachment().filename((String)d.get("name"),java.nio.charset.StandardCharsets.UTF_8).build().toString())
             .body(new InputStreamResource(store.open((String)d.get("storage_key"))));
     }
     @GetMapping("/{id}/documents/{did}/chunks") List<Map<String,Object>> chunks(@PathVariable String id,@PathVariable String did,Authentication a) {
-        doc(id,did,a,false);return db.queryForList("SELECT id,ordinal,content FROM chunk WHERE document_id=? ORDER BY ordinal",did);
+        var d=doc(id,did,a,false);
+        if(!"READY".equals(d.get("status")))return List.of();
+        return db.queryForList("SELECT id,ordinal,content,page FROM chunk WHERE document_id=? ORDER BY ordinal",did);
     }
     @PostMapping("/{id}/documents/{did}/retry") void retry(@PathVariable String id,@PathVariable String did,Authentication a) {
         doc(id,did,a,true);

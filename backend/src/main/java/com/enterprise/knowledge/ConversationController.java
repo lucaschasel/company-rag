@@ -14,8 +14,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class ConversationController {
     private final JdbcTemplate db;
     private final AccessService access;
+    private final ConversationAccess conversations;
 
-    public ConversationController(JdbcTemplate db, AccessService access) { this.db = db; this.access = access; }
+    public ConversationController(JdbcTemplate db, AccessService access, ConversationAccess conversations) { this.db = db; this.access = access; this.conversations=conversations; }
 
     record Rename(@NotBlank @Size(max = 200) String title) {}
 
@@ -25,12 +26,12 @@ public class ConversationController {
             "SELECT c.id, c.title, c.updated_at, " +
             "(SELECT COUNT(*) FROM conversation_message m WHERE m.conversation_id = c.id) AS message_count " +
             "FROM conversation c WHERE c.user_id = ? ORDER BY c.updated_at DESC, c.id DESC",
-            access.userId(a));
+            access.userId(a)).stream().filter(row -> conversations.readable((String)row.get("id"),a)).toList();
     }
 
     @GetMapping("/{id}/messages")
     List<Map<String, Object>> messages(@PathVariable String id, Authentication a) {
-        checkOwner(id, a);
+        conversations.requireReadable(id, a);
         return db.queryForList(
             "SELECT id, role, content, mode, citations, error, created_at " +
             "FROM conversation_message WHERE conversation_id = ? ORDER BY seq",

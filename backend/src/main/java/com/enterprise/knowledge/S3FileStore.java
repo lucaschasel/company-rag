@@ -24,8 +24,10 @@ public class S3FileStore implements FileStore {
                        @Value("${app.s3.endpoint:}") String endpoint,
                        @Value("${app.s3.region:us-east-1}") String region,
                        @Value("${app.s3.access-key:}") String accessKey,
-                       @Value("${app.s3.secret-key:}") String secretKey) {
-        var builder = S3Client.builder().region(Region.of(region));
+                       @Value("${app.s3.secret-key:}") String secretKey,
+                       @Value("${app.s3.path-style:true}") boolean pathStyle) {
+        if(bucket==null||bucket.isBlank())throw new IllegalArgumentException("S3_BUCKET 不能为空");
+        var builder = S3Client.builder().region(Region.of(region)).forcePathStyle(pathStyle);
         if (endpoint != null && !endpoint.isBlank()) builder.endpointOverride(URI.create(endpoint));
         if (accessKey != null && !accessKey.isBlank())
             builder.credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)));
@@ -48,9 +50,10 @@ public class S3FileStore implements FileStore {
 
     @Override public Path toLocalFile(String key) throws Exception {
         Path tmp = Files.createTempFile("rag-doc-", ".bin");
-        try (InputStream in = open(key); OutputStream out = Files.newOutputStream(tmp)) { in.transferTo(out); }
-        return tmp;
+        try (InputStream in = open(key); OutputStream out = Files.newOutputStream(tmp)) { in.transferTo(out); return tmp; }
+        catch(Exception e){Files.deleteIfExists(tmp);throw e;}
     }
 
+    @jakarta.annotation.PreDestroy void close(){s3.close();}
     @Override public void releaseLocal(Path p) throws Exception { Files.deleteIfExists(p); }
 }

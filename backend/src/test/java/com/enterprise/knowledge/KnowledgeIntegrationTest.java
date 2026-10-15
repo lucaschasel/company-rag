@@ -21,6 +21,7 @@ class KnowledgeIntegrationTest {
     @Autowired MockMvc mvc;@Autowired JdbcTemplate db;@Autowired ObjectMapper json;@Autowired IngestionService ingestion;
     private String kb;
     @BeforeEach void setup() {
+        db.update("DELETE FROM conversation");
         db.update("DELETE FROM model_settings");
         db.update("DELETE FROM chunk");db.update("DELETE FROM document");db.update("DELETE FROM kb_member");db.update("DELETE FROM knowledge_base");
         for(String name:List.of("outsider","reader"))if(db.queryForObject("SELECT COUNT(*) FROM app_user WHERE username=?",Integer.class,name)==0)db.update("INSERT INTO app_user(id,username,password_hash,role) VALUES(?,?,?,'VIEWER')",name,name,"unused");
@@ -77,6 +78,33 @@ class KnowledgeIntegrationTest {
         // Membership changes must affect the next request, including global search.
         db.update("DELETE FROM kb_member WHERE kb_id=? AND user_id='reader'",kb);
         mvc.perform(post("/api/chat").with(user("reader").roles("VIEWER")).with(csrf()).contentType("application/json").content(query)).andExpect(jsonPath("$.citations.length()").value(1)).andExpect(jsonPath("$.citations[0].kbId").value(owned));
+    }
+    @Test void revokedSourcesBlockHistoryAndFollowupAndRemainOwnerOnly() throws Exception {
+        String doc=readyDocument(kb,"研发规范 代码审查");
+        var response=mvc.perform(post("/api/chat").with(user("reader").roles("VIEWER")).with(csrf())
+            .contentType("application/json").content("{\"question\":\"研发规范\",\"topK\":5}"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String conversation=json.readTree(response).path("conversationId").asText();
+        mvc.perform(get("/api/conversations/"+conversation+"/messages").with(user("reader").roles("VIEWER"))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        mvc.perform(get("/api/conversations/"+conversation+"/messages").with(user("outsider").roles("VIEWER"))).andExpect(status().isForbidden());
+        db.update("DELETE FROM kb_member WHERE kb_id=? AND user_id='reader'",kb);
+        mvc.perform(get("/api/conversations").with(user("reader").roles("VIEWER"))).andExpect(content().json("[]"));
+        mvc.perform(get("/api/conversations/"+conversation+"/messages").with(user("reader").roles("VIEWER"))).andExpect(status().isForbidden());
+        for(String endpoint:List.of("/api/chat","/api/chat/stream"))mvc.perform(post(endpoint).with(user("reader").roles("VIEWER")).with(csrf())
+            .contentType("application/json").content(json.writeValueAsString(Map.of("conversationId",conversation,"question","继续说明","topK",5)))).andExpect(status().isForbidden());
+        db.update("INSERT INTO kb_member(kb_id,user_id) VALUES(?,'reader')",kb);
+        mvc.perform(get("/api/conversations/"+conversation+"/messages").with(user("reader").roles("VIEWER"))).andExpect(status().isOk());
+        db.update("DELETE FROM document WHERE id=?",doc);
+        mvc.perform(get("/api/conversations/"+conversation+"/messages").with(user("reader").roles("VIEWER"))).andExpect(status().isForbidden());
+    }
+    @Test void unprocessedOrRejectedDocumentsCannotBeDownloaded() throws Exception {
+        var fake=new MockMultipartFile("file","fake.pdf","application/pdf","not a PDF".getBytes(StandardCharsets.UTF_8));
+        String response=mvc.perform(multipart("/api/kbs/"+kb+"/documents").file(fake).with(user("admin").roles("ADMIN")).with(csrf())).andReturn().getResponse().getContentAsString();
+        String doc=json.readTree(response).path("id").asText();
+        mvc.perform(get("/api/kbs/"+kb+"/documents/"+doc+"/download").with(user("reader").roles("VIEWER"))).andExpect(status().isConflict());
+        ingestion.processNext();
+        assertThat(db.queryForObject("SELECT status FROM document WHERE id=?",String.class,doc)).isEqualTo("FAILED");
+        mvc.perform(get("/api/kbs/"+kb+"/documents/"+doc+"/download").with(user("reader").roles("VIEWER"))).andExpect(status().isConflict());
     }
     @Test void badLoginDoesNotCreateAuthenticatedSession() throws Exception {
         mvc.perform(post("/api/auth/login").with(csrf()).contentType("application/json").content("{\"username\":\"admin\",\"password\":\"incorrect\"}")).andExpect(status().isUnauthorized());
